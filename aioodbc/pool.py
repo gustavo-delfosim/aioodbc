@@ -40,7 +40,7 @@ async def _create_pool(
         **kwargs
     )
     if minsize > 0:
-        with (await pool._cond):
+        async with pool._cond:
             await pool._fill_free_pool(False)
     return pool
 
