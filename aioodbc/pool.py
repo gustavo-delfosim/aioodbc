@@ -7,23 +7,38 @@ import collections
 from .connection import connect
 from .utils import _PoolContextManager, _PoolConnectionContextManager
 
-__all__ = ['create_pool', 'Pool']
+__all__ = ["create_pool", "Pool"]
 
 
-def create_pool(minsize=10, maxsize=10, echo=False, loop=None,
-                pool_recycle=-1, **kwargs):
-    return _PoolContextManager(_create_pool(minsize=minsize, maxsize=maxsize,
-                               echo=echo, loop=loop, pool_recycle=pool_recycle,
-                               **kwargs))
+def create_pool(
+    minsize=10, maxsize=10, echo=False, loop=None, pool_recycle=-1, **kwargs
+):
+    return _PoolContextManager(
+        _create_pool(
+            minsize=minsize,
+            maxsize=maxsize,
+            echo=echo,
+            loop=loop,
+            pool_recycle=pool_recycle,
+            **kwargs
+        )
+    )
 
 
-async def _create_pool(minsize=10, maxsize=10, echo=False, loop=None,
-                       pool_recycle=-1, **kwargs):
+async def _create_pool(
+    minsize=10, maxsize=10, echo=False, loop=None, pool_recycle=-1, **kwargs
+):
     if loop is None:
         loop = asyncio.get_event_loop()
 
-    pool = Pool(minsize=minsize, maxsize=maxsize, echo=echo, loop=loop,
-                pool_recycle=pool_recycle, **kwargs)
+    pool = Pool(
+        minsize=minsize,
+        maxsize=maxsize,
+        echo=echo,
+        loop=loop,
+        pool_recycle=pool_recycle,
+        **kwargs
+    )
     if minsize > 0:
         with (await pool._cond):
             await pool._fill_free_pool(False)
@@ -76,7 +91,7 @@ class Pool(asyncio.AbstractServer):
 
     async def clear(self):
         """Close all free connections in pool."""
-        with (await self._cond):
+        async with self._cond:
             while self._free:
                 conn = self._free.popleft()
                 await conn.close()
@@ -98,14 +113,13 @@ class Pool(asyncio.AbstractServer):
         if self._closed:
             return
         if not self._closing:
-            raise RuntimeError(".wait_closed() should be called "
-                               "after .close()")
+            raise RuntimeError(".wait_closed() should be called " "after .close()")
 
         while self._free:
             conn = self._free.popleft()
             await conn.close()
 
-        with (await self._cond):
+        async with self._cond:
             while self.size > self.freesize:
                 await self._cond.wait()
 
@@ -119,7 +133,7 @@ class Pool(asyncio.AbstractServer):
     async def _acquire(self):
         if self._closing:
             raise RuntimeError("Cannot acquire connection after closing pool")
-        with (await self._cond):
+        async with self._cond:
             while True:
                 await self._fill_free_pool(True)
                 if self._free:
@@ -135,8 +149,10 @@ class Pool(asyncio.AbstractServer):
         n, free = 0, len(self._free)
         while n < free:
             conn = self._free[-1]
-            if self._recycle > -1 \
-                    and self._loop.time() - conn.last_usage > self._recycle:
+            if (
+                self._recycle > -1
+                and self._loop.time() - conn.last_usage > self._recycle
+            ):
                 await conn.close()
                 self._free.pop()
             else:
@@ -146,8 +162,9 @@ class Pool(asyncio.AbstractServer):
         while self.size < self.minsize:
             self._acquiring += 1
             try:
-                conn = await connect(echo=self._echo, loop=self._loop,
-                                     **self._conn_kwargs)
+                conn = await connect(
+                    echo=self._echo, loop=self._loop, **self._conn_kwargs
+                )
                 # raise exception if pool is closing
                 self._free.append(conn)
                 self._cond.notify()
@@ -159,8 +176,9 @@ class Pool(asyncio.AbstractServer):
         if override_min and self.size < self.maxsize:
             self._acquiring += 1
             try:
-                conn = await connect(echo=self._echo, loop=self._loop,
-                                     **self._conn_kwargs)
+                conn = await connect(
+                    echo=self._echo, loop=self._loop, **self._conn_kwargs
+                )
                 # raise exception if pool is closing
                 self._free.append(conn)
                 self._cond.notify()
@@ -168,12 +186,11 @@ class Pool(asyncio.AbstractServer):
                 self._acquiring -= 1
 
     async def _wakeup(self):
-        with (await self._cond):
+        async with self._cond:
             self._cond.notify()
 
     async def release(self, conn):
-        """Release free connection back to the connection pool.
-        """
+        """Release free connection back to the connection pool."""
         assert conn in self._used, (conn, self._used)
         self._used.remove(conn)
         if not conn.closed:
